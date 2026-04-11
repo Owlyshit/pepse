@@ -1,0 +1,43 @@
+liad138
+206944472
+
+Trees - I implented Tree, Flora , Fruit , WindMovement and Fruit and subclasses for leaves and 
+log.(Despite of them being long i thought this is the only times where they belong and they are
+pretty sraight forward...)
+The flora is as required API and it holds the the calling to making a tree which is similar to
+other classes where you use only create with coordinations . it uses smart randomizaition
+so a tree will be created . The tree class has 2 subclasses of log and leaf.  They are pretty much
+simple and inherit Block. and only change because of renderable.
+ I did that only because in the future we might need to add more functions
+(similar to modular programming).
+ Rather than just making a block and giving diffrent renderable and characesteristic.
+for the leaves i added a thing using functionalinterface of realistic movement of wind (using transition ofc).
+Its realistic because its using sin(the function) consumer which is a wave function and the wind is also wave
+and can be represented as such. the tree class is holding arrays of the leaves and of the log blocks.
+and an arraylist of fruits , 
+the reason its an arraylist because we dont know exactly how many fruits will be ...
+the fruit suppose to give player health by using callbacks ...
+ and is pretty simple. the respawning of a fruit  is also using callbacks... 
+and i decided it makes more sense its not should be held by a leaf because in real life
+
+I made few new classes , HelperFunctions - which is an abstract class to help using functions
+who are general and dont belong to any and needed to used within many classes
+EnergyDisplayUI simple gameobject which is changed using callback to the player  energy
+SingleTone NoiseGenerator - Just a design pattern for singleton i used this as an extrea measure 
+for the terrain so i wouldnt use two diffrent noise functions...
+DayCycleFacade- Simple facade just for single responsibility principle and it would be easier to module
+in the future (it holds what u asked Night,Sun,SunHalo)
+WorldManager - Used to be a manager and connect the diffrent classes and also to adhere to single responsibility
+and modularity
+Tree-Generator like (similar to the way you suggseted for others) has 2 subclasses leaf which 
+will be a leaf a class that just inherit from block i wanted to diffrenate to make it more modular
+and that it will go through a diffrent layer.
+Log - exactly as block just make it more modular
+WindMovement - functional api which makes the movement of leaves more realistic using sine function which is a 
+wave like the wind is also a wave 
+Within the other classes i have made as you suggested except that in avatar class i added 
+Map of runnables ( i tried using CollisionPair to avoid Map but couldnt make it work)
+ChunkData- a subclass within the pepsegameamanger just so to make it more modular and work easier to work
+with the infinite world
+Design Patterens i have used are as i said a lot of generator like (Tree,Night etc what u suggested)
+SingleTone for the noisegenerator and thats it

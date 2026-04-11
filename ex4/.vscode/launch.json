@@ -1,0 +1,16 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "PepseGameManager",
+      "type": "java",
+      "name": "Launch PepseGameManager",
+      "request": "launch",
+      "mainClass": "pepse.PepseGameManager",
+      "projectName": "ex4",
+      "cwd": "${workspaceFolder}/ex4",
+      "args": "",
+      "preLaunchTask": "pepse: build"
+    }
+  ]
+}

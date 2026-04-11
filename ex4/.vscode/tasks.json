@@ -1,0 +1,25 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "pepse: build",
+      "type": "shell",
+      "command": "& \"C:\\Program Files\\Java\\jdk-17\\bin\\javac.exe\" -cp \".;pepse\\lib\\DanoGameLab.jar\" -d out (Get-ChildItem -Recurse -Filter *.java | ForEach-Object { $_.FullName })",
+      "options": {
+        "cwd": "${workspaceFolder}/ex4"
+      },
+      "group": "build",
+      "problemMatcher": ["$javac"]
+    },
+    {
+      "label": "pepse: run",
+      "type": "shell",
+      "command": "& \"C:\\Program Files\\Java\\jdk-17\\bin\\java.exe\" -cp \".;out;pepse\\lib\\DanoGameLab.jar\" pepse.PepseGameManager",
+      "options": {
+        "cwd": "${workspaceFolder}/ex4"
+      },
+      "dependsOn": "pepse: build",
+      "group": "test"
+    }
+  ]
+}
