@@ -4,10 +4,13 @@ import danogl.GameObject;
 import danogl.gui.ImageReader;
 import danogl.util.Vector2;
 
-/**
- * A temporary square sword placeholder that stays attached to the avatar hand.
- */
+import java.util.Random;
+
 public class Sword extends GameObject implements Weapon {
+    private enum AttackStyle {
+        SLASH,
+        STAB
+    }
     private static final float SIZE = 25f;
     private static final String SWORD_PATH = "assets/sword.png";
     private static final float IDLE_ANGLE = 0f;
@@ -18,11 +21,22 @@ public class Sword extends GameObject implements Weapon {
     private static final float ATTACK_DURATION = 0.18f;
     private static final float ATTACK_MAX_SWING_ANGLE = 65f;
     private static final float ATTACK_RECOVERY_ANGLE = 20f;
+    private static final float STAB_READY_ANGLE = 0f;
+    private static final float STAB_THRUST_ANGLE = 6f;
+    private static final float STAB_RECOVERY_ANGLE = 10f;
+    private static final float STAB_MAX_Y_OFFSET = 4f;
+    private static final float STAB_MAX_X_OFFSET = 16f;
+    private static final int DAMAGE = 10;
+    private final Random random = new Random();
     private float animationTime = 0f;
     private float cooldownTimer = 0f;
     private float attackTimer = 0f;
+    private float attackXOffset = 0f;
+    private float attackYOffset = 0f;
     private boolean isAttacking = false;
+    private int attackSequence = 0;
     private boolean facingRight = true;
+    private AttackStyle currentAttackStyle = AttackStyle.SLASH;
     /**
      * Creates a sword object at an initial hand anchor position.
      *
@@ -49,17 +63,17 @@ public class Sword extends GameObject implements Weapon {
     /**
      * Updates sword orientation based on avatar movement state.
      *
-     * @param animationName Current avatar animation name (idle/run/jump).
+     * @param animationName Current avatar animation state.
      * @param deltaTime Elapsed frame time.
      */
-    private void updateAnimationState(String animationName, float deltaTime) {
+    private void updateAnimationState(Weapon.AvatarAnimation animationName, float deltaTime) {
         animationTime += deltaTime;
         switch (animationName) {
-            case "run":
+            case RUN:
                 float swing = (float) Math.sin(animationTime * RUN_SWING_SPEED) * RUN_SWING_ANGLE;
                 renderer().setRenderableAngle(facingRight ? swing : -swing);
                 break;
-            case "jump":
+            case JUMP:
                 renderer().setRenderableAngle(facingRight ? JUMP_ANGLE : -JUMP_ANGLE);
                 break;
             default:
@@ -76,7 +90,9 @@ public class Sword extends GameObject implements Weapon {
         if (cooldownTimer > 0 || isAttacking) {
             return;
         }
+        currentAttackStyle = random.nextBoolean() ? AttackStyle.SLASH : AttackStyle.STAB;
         isAttacking = true;
+        attackSequence++;
         attackTimer = ATTACK_DURATION;
         cooldownTimer = ATTACK_COOLDOWN;
     }
@@ -87,9 +103,8 @@ public class Sword extends GameObject implements Weapon {
     @Override
     public void syncWithAvatar(Vector2 handPosition,
                                boolean facingRight,
-                               String avatarAnimation,
+                               Weapon.AvatarAnimation avatarAnimation,
                                float deltaTime) {
-        setCenter(handPosition);
         setFacingDirection(facingRight);
 
         if (cooldownTimer > 0) {
@@ -98,9 +113,14 @@ public class Sword extends GameObject implements Weapon {
 
         if (isAttacking) {
             updateAttackAnimation(deltaTime);
+            float directionalXOffset = facingRight ? attackXOffset : -attackXOffset;
+            setCenter(handPosition.add(new Vector2(directionalXOffset, attackYOffset)));
             return;
         }
 
+        attackXOffset = 0f;
+        attackYOffset = 0f;
+        setCenter(handPosition);
         updateAnimationState(avatarAnimation, deltaTime);
     }
 
@@ -115,6 +135,20 @@ public class Sword extends GameObject implements Weapon {
     private void updateAttackAnimation(float deltaTime) {
         attackTimer -= deltaTime;
         float progress = 1f - Math.max(0, attackTimer) / ATTACK_DURATION;
+        if (currentAttackStyle == AttackStyle.STAB) {
+            updateStabAttack(progress);
+        } else {
+            updateSlashAttack(progress);
+        }
+
+        if (attackTimer <= 0) {
+            isAttacking = false;
+            attackXOffset = 0f;
+            attackYOffset = 0f;
+        }
+    }
+
+    private void updateSlashAttack(float progress) {
         float localAngle;
 
         if (progress < 0.5f) {
@@ -123,11 +157,31 @@ public class Sword extends GameObject implements Weapon {
             localAngle = lerp(ATTACK_MAX_SWING_ANGLE, -ATTACK_RECOVERY_ANGLE, (progress - 0.5f) * 2f);
         }
 
+        attackXOffset = 0f;
+        attackYOffset = 0f;
         renderer().setRenderableAngle(facingRight ? localAngle : -localAngle);
+    }
 
-        if (attackTimer <= 0) {
-            isAttacking = false;
+    private void updateStabAttack(float progress) {
+        float localAngle;
+        if (progress < 0.3f) {
+            float phaseProgress = progress / 0.3f;
+            localAngle = lerp(0f, STAB_READY_ANGLE, phaseProgress);
+            attackXOffset = lerp(0f, -3f, phaseProgress);
+            attackYOffset = lerp(0f, STAB_MAX_Y_OFFSET, phaseProgress);
+        } else if (progress < 0.7f) {
+            float phaseProgress = (progress - 0.3f) / 0.4f;
+            localAngle = lerp(STAB_READY_ANGLE, STAB_THRUST_ANGLE, phaseProgress);
+            attackXOffset = lerp(-3f, STAB_MAX_X_OFFSET, phaseProgress);
+            attackYOffset = STAB_MAX_Y_OFFSET;
+        } else {
+            float phaseProgress = (progress - 0.7f) / 0.3f;
+            localAngle = lerp(STAB_THRUST_ANGLE, -STAB_RECOVERY_ANGLE, phaseProgress);
+            attackXOffset = lerp(STAB_MAX_X_OFFSET, 0f, phaseProgress);
+            attackYOffset = lerp(STAB_MAX_Y_OFFSET, 0f, phaseProgress);
         }
+
+        renderer().setRenderableAngle(facingRight ? localAngle : -localAngle);
     }
 
     private static float lerp(float start, float end, float t) {
@@ -135,7 +189,14 @@ public class Sword extends GameObject implements Weapon {
     }
     @Override
     public int getDamage() {
-            // TODO Auto-generated method stub
-            return 0;
+            return DAMAGE;
+    }
+
+    public boolean isAttacking() {
+        return isAttacking;
+    }
+
+    public int getAttackSequence() {
+        return attackSequence;
     }
 }

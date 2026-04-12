@@ -35,9 +35,9 @@ public class Avatar extends GameObject {
     private final Map<AvatarState, List<Runnable>> stateActions = new HashMap<>();
     private final Map<String, Consumer<GameObject>> parameterizedBehaviors = new HashMap<>();
     private final UserInputListener inputListener;
-    private final HashMap<String, AnimationRenderable> animations;
+    private final Map<Weapon.AvatarAnimation, AnimationRenderable> animations;
     private final Weapon weapon;
-    private String currentAnimation = "idle";
+    private Weapon.AvatarAnimation currentAnimation = Weapon.AvatarAnimation.IDLE;
     private boolean isFacingRight = true;
     private boolean wasAttackPressed = false;
     private float energy = 100;
@@ -49,10 +49,12 @@ public class Avatar extends GameObject {
     private static final float VELOCITY_X = 300;
     private static final float VELOCITY_Y = -300;
     private static final float GRAVITY = 300;
-    private static final float REQUIRED_ENERGY_TO_JUMP = 10;
     private static final float MINIMUM_AMOUNT_OF_ENERGY_TO_MOVE = 0;
     private static final float MOVING_ENERGY_LOSS = -0.5f;
-    private static final float JUMPING_ENERGY_LOSS = -10f;
+    private static final float REQUIRED_ENERGY_TO_JUMP = 10f;
+    private static final float JUMPING_ENERGY_COST = -10f;
+    private static final float REQUIRED_ENERGY_TO_ATTACK = 5f;
+    private static final float ATTACK_ENERGY_COST = -5f;
     private static final float IDLE_ENERGY_REGEN = 1;
     private static final float HAND_OFFSET_X = 25f;
     private static final float HAND_OFFSET_Y = 26f;
@@ -81,10 +83,10 @@ public class Avatar extends GameObject {
         this.inputListener = inputListener;
 
         animations = new HashMap<>();
-        animations.put("idle", createAnimation(IDLE_FRAME_PATHS, imageReader, 0.1));
-        animations.put("run", createAnimation(RUN_FRAME_PATHS, imageReader, 0.1));
-        animations.put("jump", createAnimation(JUMP_FRAME_PATHS, imageReader, 0.1));
-        renderer().setRenderable(animations.get("idle"));
+        animations.put(Weapon.AvatarAnimation.IDLE, createAnimation(IDLE_FRAME_PATHS, imageReader, 0.1));
+        animations.put(Weapon.AvatarAnimation.RUN, createAnimation(RUN_FRAME_PATHS, imageReader, 0.1));
+        animations.put(Weapon.AvatarAnimation.JUMP, createAnimation(JUMP_FRAME_PATHS, imageReader, 0.1));
+        renderer().setRenderable(animations.get(Weapon.AvatarAnimation.IDLE));
         weapon = new Sword(imageReader, getHandWorldPosition());
         setTag("Avatar");
 
@@ -128,7 +130,7 @@ public class Avatar extends GameObject {
             xVel -= VELOCITY_X;
             renderer().setIsFlippedHorizontally(true);
             isFacingRight = false;
-            setAnimation("run");
+            setAnimation(Weapon.AvatarAnimation.RUN);
             addEnergy(MOVING_ENERGY_LOSS * deltaTime);
             currentState = AvatarState.RUNNING;
         }
@@ -136,25 +138,27 @@ public class Avatar extends GameObject {
             xVel += VELOCITY_X;
             renderer().setIsFlippedHorizontally(false);
             isFacingRight = true;
-            setAnimation("run");
+            setAnimation(Weapon.AvatarAnimation.RUN);
             addEnergy(MOVING_ENERGY_LOSS * deltaTime);
             currentState = AvatarState.RUNNING;
         }
         transform().setVelocityX(xVel);
-        if (spacePressed && getVelocity().y() == 0 && energy > REQUIRED_ENERGY_TO_JUMP) {
+        if (spacePressed && getVelocity().y() == 0 && energy >= REQUIRED_ENERGY_TO_JUMP) {
             transform().setVelocityY(VELOCITY_Y);
-            addEnergy(JUMPING_ENERGY_LOSS);
-            setAnimation("jump");
+            addEnergy(JUMPING_ENERGY_COST);
+            setAnimation(Weapon.AvatarAnimation.JUMP);
             executeStateActions(AvatarState.JUMPING);
             currentState = AvatarState.JUMPING;
         }
         if (getVelocity().y() == 0 && xVel == 0) {
-            setAnimation("idle");
+            setAnimation(Weapon.AvatarAnimation.IDLE);
             addEnergy(IDLE_ENERGY_REGEN * deltaTime);
             currentState = AvatarState.IDLE;
         }
-        if (attackPressed && !wasAttackPressed) {
+        if (attackPressed && !wasAttackPressed && energy >= REQUIRED_ENERGY_TO_ATTACK) {
             weapon.triggerAttack();
+            addEnergy(ATTACK_ENERGY_COST);
+            
         }
         wasAttackPressed = attackPressed;
 
@@ -254,7 +258,7 @@ public class Avatar extends GameObject {
      *
      * @param animationName The name of the animation to set.
      */
-    private void setAnimation(String animationName) {
+    private void setAnimation(Weapon.AvatarAnimation animationName) {
         if (!currentAnimation.equals(animationName)) {
             renderer().setRenderable(animations.get(animationName));
             currentAnimation = animationName;

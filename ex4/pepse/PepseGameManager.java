@@ -12,9 +12,13 @@ import danogl.gui.rendering.Camera;
 import danogl.util.Vector2;
 import pepse.UI.EnergyDisplay;
 import pepse.world.Avatar;
+import pepse.world.Block;
 import pepse.world.Cloud;
 import pepse.world.Sky;
+import pepse.world.Sword;
 import pepse.world.WorldManager;
+import pepse.world.monsters.GreenSlime;
+import pepse.world.monsters.Monster;
 import pepse.world.trees.Fruit;
 import pepse.world.trees.Tree;
 import java.util.*;
@@ -32,6 +36,7 @@ public class PepseGameManager extends GameManager {
     public static final String NAME_OF_GAME = "Simulator";
     /**Represents the world manager.*/
     private WorldManager worldManager;
+    private ImageReader imageReader;
     /**Represents the player character.*/
     private Avatar avatar;
     private final int AVATAR_SPAWN_OFFSET = 50;
@@ -41,6 +46,13 @@ public class PepseGameManager extends GameManager {
     private static final int VISIBLE_CHUNKS = 3;
     /**Represents the map of chunk data.*/
     private final Map<Integer, ChunkData> chunkDataMap = new HashMap<>(); // Stores loaded chunk data.
+    private static final int MAX_SLIMES_PER_CHUNK = 2;
+    private static final float SLIME_SPAWN_CHANCE = 0.55f;
+    private static final float SLIME_SIZE = 36f;
+    private static final float MONSTER_RESPAWN_DELAY = WorldManager.CYCLE_LENGTH;
+    private static final float MONSTER_CONTACT_DAMAGE_COOLDOWN = 0.5f;
+    private final Set<Monster> pendingMonsterRespawns = new HashSet<>();
+    private final Map<Monster, Float> monsterDamageCooldowns = new HashMap<>();
 
     /**
      * Main entry point for the game. Initializes the game manager and starts the game loop.
@@ -74,6 +86,7 @@ public class PepseGameManager extends GameManager {
             WindowController windowController
     ) {
         super.initializeGame(imageReader, soundReader, inputListener, windowController);
+        this.imageReader = imageReader;
         windowController.setTargetFramerate(60);
         worldManager = new WorldManager(windowController.getWindowDimensions());
         float initialSpawnX = windowController.getWindowDimensions().x() / 2;
@@ -104,6 +117,8 @@ public class PepseGameManager extends GameManager {
         Vector2 avatarPosition = avatar.getCenter();
         int currentChunk = getChunkIndex(avatarPosition.x());
         loadChunksAround(currentChunk);
+        handleMonsterRespawns();
+        handleAvatarMonsterContactDamage(deltaTime);
     }
     /**
      * Creates raindrops when the avatar is in the jumping state.
@@ -134,7 +149,9 @@ public class PepseGameManager extends GameManager {
     private void addWorldObjects
     (WorldManager worldManager,
      List<GameObject> terrainBlocks,
-     List<Tree> trees, int chunkIndex) {
+     List<Tree> trees,
+     List<Monster> monsters,
+     int chunkIndex) {
         if (loadedChunkIndices.isEmpty()) {
             gameObjects().addGameObject
                     (worldManager.getDayCycleFacade().getNight(), Layer.FOREGROUND);
@@ -161,7 +178,136 @@ public class PepseGameManager extends GameManager {
                 gameObjects().addGameObject(fruit, Layer.DEFAULT);
             }
         }
-        chunkDataMap.put(chunkIndex, new ChunkData(terrainBlocks, trees));
+
+        for (Monster monster : monsters) {
+            gameObjects().addGameObject(monster, Layer.DEFAULT);
+        }
+
+        chunkDataMap.put(chunkIndex, new ChunkData(terrainBlocks, trees, monsters));
+    }
+
+    private List<Monster> generateRandomMonsters(int chunkIndex) {
+        List<Monster> monsters = new ArrayList<>();
+        int minX = chunkIndex * WorldManager.CHUNK_SIZE;
+        int maxX = (chunkIndex + 1) * WorldManager.CHUNK_SIZE;
+        Random chunkRandom = new Random(10007L * chunkIndex + 17L);
+        Sword playerSword = (Sword) avatar.getWeaponObject();
+
+        for (int i = 0; i < MAX_SLIMES_PER_CHUNK; i++) {
+            if (chunkRandom.nextFloat() > SLIME_SPAWN_CHANCE) {
+                continue;
+            }
+            float spawnX = minX + chunkRandom.nextFloat() * (maxX - minX);
+            float spawnY = worldManager.getStartingPositionY(spawnX) - SLIME_SIZE;
+            monsters.add(new GreenSlime(
+                    new Vector2(spawnX, spawnY),
+                    new Vector2(SLIME_SIZE, SLIME_SIZE),
+                    imageReader,
+                    playerSword));
+        }
+
+        return monsters;
+    }
+
+    private Monster createRespawnedMonster(Monster monster, Vector2 topLeftCorner, Vector2 dimensions) {
+        if (monster instanceof GreenSlime) {
+            return new GreenSlime(topLeftCorner,
+                    dimensions,
+                    imageReader,
+                    (Sword) avatar.getWeaponObject());
+        }
+        return null;
+    }
+
+    private void handleMonsterRespawns() {
+        for (Map.Entry<Integer, ChunkData> entry : chunkDataMap.entrySet()) {
+            int chunkIndex = entry.getKey();
+            ChunkData chunkData = entry.getValue();
+            List<Monster> monstersSnapshot = new ArrayList<>(chunkData.monsters);
+
+            for (Monster monster : monstersSnapshot) {
+                if (monster.isAlive() || pendingMonsterRespawns.contains(monster)) {
+                    continue;
+                }
+
+                pendingMonsterRespawns.add(monster);
+                gameObjects().removeGameObject(monster, Layer.DEFAULT);
+                Vector2 respawnTopLeft = monster.getTopLeftCorner();
+                Vector2 respawnDimensions = monster.getDimensions();
+
+                new ScheduledTask(avatar, MONSTER_RESPAWN_DELAY, false, () -> {
+                    pendingMonsterRespawns.remove(monster);
+                    if (!loadedChunkIndices.contains(chunkIndex)) {
+                        return;
+                    }
+
+                    Monster respawnedMonster =
+                            createRespawnedMonster(monster, respawnTopLeft, respawnDimensions);
+                    if (respawnedMonster == null) {
+                        return;
+                    }
+
+                    chunkData.monsters.remove(monster);
+                    chunkData.monsters.add(respawnedMonster);
+                    gameObjects().addGameObject(respawnedMonster, Layer.DEFAULT);
+                });
+            }
+        }
+    }
+
+    private void handleAvatarMonsterContactDamage(float deltaTime) {
+        List<Monster> staleMonsters = new ArrayList<>();
+        for (Map.Entry<Monster, Float> entry : monsterDamageCooldowns.entrySet()) {
+            Monster monster = entry.getKey();
+            if (!isMonsterManaged(monster)) {
+                staleMonsters.add(monster);
+                continue;
+            }
+
+            float nextCooldown = Math.max(0f, entry.getValue() - deltaTime);
+            entry.setValue(nextCooldown);
+        }
+
+        for (Monster staleMonster : staleMonsters) {
+            monsterDamageCooldowns.remove(staleMonster);
+        }
+
+        for (ChunkData chunkData : chunkDataMap.values()) {
+            for (Monster monster : chunkData.monsters) {
+                if (!monster.isAlive() || !isOverlapping(avatar, monster)) {
+                    continue;
+                }
+
+                float cooldown = monsterDamageCooldowns.getOrDefault(monster, 0f);
+                if (cooldown > 0f) {
+                    continue;
+                }
+
+                avatar.addEnergy(-monster.getContactDamage());
+                monsterDamageCooldowns.put(monster, MONSTER_CONTACT_DAMAGE_COOLDOWN);
+            }
+        }
+    }
+
+    private boolean isMonsterManaged(Monster monster) {
+        for (ChunkData chunkData : chunkDataMap.values()) {
+            if (chunkData.monsters.contains(monster)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private boolean isOverlapping(GameObject first, GameObject second) {
+        Vector2 firstTopLeft = first.getTopLeftCorner();
+        Vector2 firstBottomRight = firstTopLeft.add(first.getDimensions());
+        Vector2 secondTopLeft = second.getTopLeftCorner();
+        Vector2 secondBottomRight = secondTopLeft.add(second.getDimensions());
+
+        return firstTopLeft.x() < secondBottomRight.x()
+                && firstBottomRight.x() > secondTopLeft.x()
+                && firstTopLeft.y() < secondBottomRight.y()
+                && firstBottomRight.y() > secondTopLeft.y();
     }
 
     /**
@@ -214,7 +360,8 @@ public class PepseGameManager extends GameManager {
         List<GameObject> terrainBlocks =
                 worldManager.generateTerrainBlocks(chunkIndex);
         List<Tree> trees = worldManager.generateTrees(chunkIndex);
-        addWorldObjects(worldManager, terrainBlocks, trees, chunkIndex);
+        List<Monster> monsters = generateRandomMonsters(chunkIndex);
+        addWorldObjects(worldManager, terrainBlocks, trees, monsters, chunkIndex);
         loadedChunkIndices.add(chunkIndex);
     }
 
@@ -238,6 +385,11 @@ public class PepseGameManager extends GameManager {
                 gameObjects().removeGameObject(fruit, Layer.DEFAULT);
             }
         }
+        for (Monster monster : data.monsters) {
+            pendingMonsterRespawns.remove(monster);
+            monsterDamageCooldowns.remove(monster);
+            gameObjects().removeGameObject(monster, Layer.DEFAULT);
+        }
 
         chunkDataMap.remove(chunkIndex);
         loadedChunkIndices.remove(chunkIndex);
@@ -259,10 +411,12 @@ public class PepseGameManager extends GameManager {
     private static class ChunkData {
         List<GameObject> terrainBlocks;
         List<Tree> trees;
+        List<Monster> monsters;
 
-        ChunkData(List<GameObject> terrainBlocks, List<Tree> trees) {
+        ChunkData(List<GameObject> terrainBlocks, List<Tree> trees, List<Monster> monsters) {
             this.terrainBlocks = terrainBlocks;
             this.trees = trees;
+            this.monsters = monsters;
         }
     }
 }
